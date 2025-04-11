@@ -1,0 +1,7 @@
+selenium==4.18.1
+webdriver-manager==4.0.1
+faker==24.9.0
+python-dotenv==1.0.1
+pandas==2.2.1
+2captcha-python==1.2.1
+requests==2.31.0 
