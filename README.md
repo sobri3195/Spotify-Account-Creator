@@ -11,11 +11,15 @@ GitHub: [sobri3195](https://github.com/sobri3195)
 ## Features
 
 - Automated Spotify account creation
+- Optional post-creation onboarding:
+  - Follow a target playlist
+  - Follow each artist found in that playlist
+  - (Optional) start playing the playlist and enable repeat
 - Random email and password generation
 - Proxy support with rotation
 - CAPTCHA solving integration (using 2Captcha)
 - Export accounts to CSV or JSON format
-- Anti-detection measures
+- Anti-detection measures (best-effort)
 - Configurable settings
 - Detailed logging
 
@@ -29,74 +33,84 @@ GitHub: [sobri3195](https://github.com/sobri3195)
 ## Installation
 
 1. Clone this repository:
+
 ```bash
 git clone https://github.com/sobri3195/spotify-account-creator.git
 cd spotify-account-creator
 ```
 
 2. Install the required packages:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 3. Configure your settings:
-   - Copy `.env.example` to `.env` and add your 2Captcha API key if using CAPTCHA solver
-   - Edit `config.json` to customize settings if needed
+
+- Copy `.env.example` to `.env` and add your 2Captcha API key if using CAPTCHA solver
+- Edit `config.json` to customize settings if needed
 
 ## Configuration
 
 The tool uses two configuration files:
 
 1. `.env` - For sensitive data:
+
 ```
 2CAPTCHA_API_KEY=your_api_key_here
 ```
 
 2. `config.json` - For general settings:
+
 ```json
 {
-    "delays": {
-        "min_typing_delay": 0.1,
-        "max_typing_delay": 0.3,
-        "min_page_load_delay": 2,
-        "max_page_load_delay": 4,
-        "min_attempt_delay": 5,
-        "max_attempt_delay": 10
-    },
-    "retry_attempts": 3,
-    "success_indicators": [
-        "success-message",
-        "account-created",
-        "welcome-page"
-    ]
+  "delays": {
+    "min_typing_delay": 0.1,
+    "max_typing_delay": 0.3,
+    "min_page_load_delay": 2,
+    "max_page_load_delay": 4,
+    "min_attempt_delay": 5,
+    "max_attempt_delay": 10
+  },
+  "retry_attempts": 3,
+  "post_creation": {
+    "mode": "account_only",
+    "playlist_url": "https://open.spotify.com/playlist/YOUR_PLAYLIST_ID",
+    "max_artists_to_follow": 25,
+    "max_playlist_scrolls": 12
+  }
 }
 ```
+
+### Post-creation modes
+
+Set `post_creation.mode` (or pass `post_creation_mode` to `create_account(...)`) to one of:
+
+- `account_only` (default)
+- `playlist_follow_artists`
+- `playlist_follow_artists_play_repeat`
+
+`playlist_url` should be a full playlist URL, e.g. `https://open.spotify.com/playlist/<id>`.
 
 ## Usage
 
 Basic usage:
+
 ```python
 from spotify_account_creator import SpotifyAccountCreator
 
-# Create instance without proxy or CAPTCHA solver
 creator = SpotifyAccountCreator()
 
-# Create instance with proxy and CAPTCHA solver
-creator = SpotifyAccountCreator(
-    use_proxy=True,
-    proxy_list=["http://proxy1.example.com:8080", "http://proxy2.example.com:8080"],
-    use_captcha_solver=True
-)
+# Create an account only
+creator.create_account(post_creation_mode="account_only")
 
-# Create accounts
-for _ in range(5):
-    if creator.create_account():
-        print("Account created successfully!")
-    
-# Export accounts to CSV
-creator.export_accounts(format='csv')
+# Create an account + follow playlist + follow artists
+creator.create_account(post_creation_mode="playlist_follow_artists")
 
-# Don't forget to close the browser
+# Create an account + follow playlist + follow artists + play on repeat
+creator.create_account(post_creation_mode="playlist_follow_artists_play_repeat")
+
+creator.export_accounts(format="csv")
 creator.close()
 ```
 
@@ -106,7 +120,7 @@ creator.close()
 - The tool includes random delays between account creation attempts
 - Consider using proxies to avoid IP-based restrictions
 - CAPTCHA solving requires a valid 2Captcha API key
-- The tool includes anti-detection measures to make automation less detectable
+- Spotify UI changes frequently; selectors may require updates over time
 
 ## Support
 
@@ -140,4 +154,4 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE. 
+SOFTWARE.

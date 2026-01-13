@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+
+# Environment
+.env
+
+# Logs & outputs
+*.log
+spotify_accounts_*.csv
+spotify_accounts_*.json
+
+# OS
+.DS_Store
