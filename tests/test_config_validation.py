@@ -47,5 +47,15 @@ class ConfigValidationTests(unittest.TestCase):
         self.assertEqual(creator.config['post_creation']['max_playlist_scrolls'], 1)
 
 
+class DriverRecoveryTests(unittest.TestCase):
+    def test_proxy_error_is_detected(self):
+        err = Exception("unknown error: net::ERR_PROXY_CONNECTION_FAILED")
+        self.assertTrue(SpotifyAccountCreator._is_proxy_connection_error(err))
+
+    def test_invalid_session_error_is_detected(self):
+        err = Exception("invalid session id: session deleted as the browser has closed the connection")
+        self.assertTrue(SpotifyAccountCreator._is_invalid_session_error(err))
+
+
 if __name__ == '__main__':
     unittest.main()
