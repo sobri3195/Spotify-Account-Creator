@@ -114,6 +114,30 @@ creator.export_accounts(format="csv")
 creator.close()
 ```
 
+## CLI Usage (Improved UX)
+
+You can now run the tool from terminal with clear options:
+
+```bash
+python spotify_account_creator.py --count 3 --mode playlist_follow_artists --export csv
+```
+
+Useful flags:
+
+- `--count` Number of account creation attempts
+- `--config` Path to config file (default: `config.json`)
+- `--mode` Override `post_creation.mode` from config
+- `--use-proxy` Enable proxy usage
+- `--proxy` Add proxy URL (repeatable)
+- `--captcha` Enable 2Captcha solver (requires `2CAPTCHA_API_KEY`)
+- `--export` Export format (`csv` or `json`)
+
+Example with proxies:
+
+```bash
+python spotify_account_creator.py --use-proxy --proxy http://127.0.0.1:8080 --count 2
+```
+
 ## Important Notes
 
 - Use this tool responsibly and in accordance with Spotify's Terms of Service

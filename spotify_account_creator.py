@@ -3,6 +3,7 @@ import time
 import random
 import json
 import logging
+import argparse
 import pandas as pd
 from datetime import datetime
 from typing import Optional, List, Dict, Tuple, Set
@@ -11,6 +12,7 @@ from urllib.parse import urljoin
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import (
@@ -54,12 +56,70 @@ class SpotifyAccountCreator:
         self.use_captcha_solver = use_captcha_solver
         self.accounts = []
         self.config = self.load_config(config_path)
+        self._validate_config()
 
         if use_captcha_solver:
             load_dotenv()
-            self.solver = TwoCaptcha(os.getenv('2CAPTCHA_API_KEY'))
+            captcha_key = os.getenv('2CAPTCHA_API_KEY')
+            if not captcha_key:
+                logging.warning("2CAPTCHA_API_KEY not found. CAPTCHA solver disabled.")
+                self.use_captcha_solver = False
+            else:
+                self.solver = TwoCaptcha(captcha_key)
 
         self.setup_driver()
+
+    def _validate_config(self):
+        """Validate config values and self-heal obvious mistakes."""
+        delays = self.config.get('delays', {})
+        delay_pairs = [
+            ('min_typing_delay', 'max_typing_delay'),
+            ('min_page_load_delay', 'max_page_load_delay'),
+            ('min_attempt_delay', 'max_attempt_delay'),
+            ('min_action_delay', 'max_action_delay'),
+            ('min_scroll_delay', 'max_scroll_delay'),
+        ]
+
+        for min_key, max_key in delay_pairs:
+            min_value = float(delays.get(min_key, 0))
+            max_value = float(delays.get(max_key, 0))
+            if min_value < 0:
+                min_value = 0
+            if max_value < 0:
+                max_value = 0
+            if min_value > max_value:
+                logging.warning(
+                    "Invalid delay range for %s/%s. Swapping values.",
+                    min_key,
+                    max_key,
+                )
+                min_value, max_value = max_value, min_value
+            delays[min_key] = min_value
+            delays[max_key] = max_value
+
+        retry_attempts = int(self.config.get('retry_attempts', 3))
+        self.config['retry_attempts'] = max(0, retry_attempts)
+
+        post_creation_cfg = self.config.get('post_creation', {})
+        allowed_modes = {
+            POST_CREATION_MODE_ACCOUNT_ONLY,
+            POST_CREATION_MODE_PLAYLIST_FOLLOW_ARTISTS,
+            POST_CREATION_MODE_PLAYLIST_FOLLOW_ARTISTS_PLAY_REPEAT,
+        }
+        mode = post_creation_cfg.get('mode', POST_CREATION_MODE_ACCOUNT_ONLY)
+        if mode not in allowed_modes:
+            logging.warning("Unknown post_creation.mode '%s'. Using account_only.", mode)
+            post_creation_cfg['mode'] = POST_CREATION_MODE_ACCOUNT_ONLY
+
+        post_creation_cfg['max_artists_to_follow'] = max(
+            1,
+            int(post_creation_cfg.get('max_artists_to_follow', 25)),
+        )
+        post_creation_cfg['max_playlist_scrolls'] = max(
+            1,
+            int(post_creation_cfg.get('max_playlist_scrolls', 12)),
+        )
+        self.config['post_creation'] = post_creation_cfg
 
     def load_config(self, config_path: str) -> Dict:
         """Load configuration from JSON file"""
@@ -237,6 +297,38 @@ class SpotifyAccountCreator:
         except (ElementClickInterceptedException, WebDriverException):
             try:
                 self.driver.execute_script("arguments[0].click();", element)
+                return True
+            except Exception:
+                return False
+
+    def _safe_clear(self, element):
+        if element is None:
+            return
+        try:
+            element.clear()
+        except Exception:
+            pass
+
+    def _fill_field(self, candidates: List[Tuple[str, str]], value: str, timeout: int = 10) -> bool:
+        field = self._find_first(candidates, timeout=timeout)
+        if not field:
+            return False
+
+        self._safe_clear(field)
+        self.human_like_typing(field, value)
+        return True
+
+    def _select_dropdown_value(self, candidates: List[Tuple[str, str]], value: str, timeout: int = 10) -> bool:
+        field = self._find_first(candidates, timeout=timeout)
+        if not field:
+            return False
+
+        try:
+            Select(field).select_by_value(value)
+            return True
+        except Exception:
+            try:
+                Select(field).select_by_visible_text(str(int(value)))
                 return True
             except Exception:
                 return False
@@ -497,33 +589,27 @@ class SpotifyAccountCreator:
             user_data = self.generate_random_data()
             logging.info(f"Attempting to create account with email: {user_data['email']}")
 
-            email_field = self.wait_and_find_element(By.ID, 'email')
-            if email_field:
-                self.human_like_typing(email_field, user_data['email'])
+            birth_year, birth_month, birth_day = user_data['birth_date'].split('-')
 
-            confirm_field = self.wait_and_find_element(By.ID, 'confirm')
-            if confirm_field:
-                self.human_like_typing(confirm_field, user_data['email'])
+            required_fields = [
+                self._fill_field([(By.ID, 'email'), (By.NAME, 'email')], user_data['email']),
+                self._fill_field([(By.ID, 'confirm'), (By.NAME, 'confirm')], user_data['email']),
+                self._fill_field([(By.ID, 'password'), (By.NAME, 'password')], user_data['password']),
+                self._fill_field([(By.ID, 'displayname'), (By.NAME, 'displayname')], user_data['display_name']),
+                self._fill_field([(By.ID, 'day'), (By.NAME, 'day')], birth_day),
+                self._fill_field([(By.ID, 'year'), (By.NAME, 'year')], birth_year),
+            ]
 
-            password_field = self.wait_and_find_element(By.ID, 'password')
-            if password_field:
-                self.human_like_typing(password_field, user_data['password'])
+            month_filled = self._select_dropdown_value(
+                [(By.ID, 'month'), (By.NAME, 'month')],
+                str(int(birth_month)),
+            )
+            if not month_filled:
+                month_filled = self._fill_field([(By.ID, 'month'), (By.NAME, 'month')], birth_month)
+            required_fields.append(month_filled)
 
-            display_name_field = self.wait_and_find_element(By.ID, 'displayname')
-            if display_name_field:
-                self.human_like_typing(display_name_field, user_data['display_name'])
-
-            day_field = self.wait_and_find_element(By.ID, 'day')
-            if day_field:
-                self.human_like_typing(day_field, user_data['birth_date'].split('-')[2])
-
-            month_field = self.wait_and_find_element(By.ID, 'month')
-            if month_field:
-                self.human_like_typing(month_field, user_data['birth_date'].split('-')[1])
-
-            year_field = self.wait_and_find_element(By.ID, 'year')
-            if year_field:
-                self.human_like_typing(year_field, user_data['birth_date'].split('-')[0])
+            if not all(required_fields):
+                logging.warning("One or more signup fields were not found. UI layout may have changed.")
 
             try:
                 gender_radio = self.wait_and_find_element(
@@ -543,9 +629,20 @@ class SpotifyAccountCreator:
                         captcha_response,
                     )
 
-            submit_button = self.wait_and_find_element(By.ID, 'register-button')
+            submit_button = self._find_first(
+                [
+                    (By.ID, 'register-button'),
+                    (By.CSS_SELECTOR, "button[data-testid='submit']"),
+                    (By.XPATH, "//button[@type='submit']"),
+                ],
+                timeout=10,
+                clickable=True,
+            )
             if submit_button:
                 self._safe_click(submit_button)
+            else:
+                logging.error("Submit button not found. Cannot continue account creation.")
+                return False
 
             time.sleep(5)
             if self.verify_success():
@@ -566,6 +663,10 @@ class SpotifyAccountCreator:
 
             if retry_count < self.config['retry_attempts']:
                 logging.info(f"Retrying account creation (attempt {retry_count + 1})")
+                self._sleep_random(
+                    self.config['delays']['min_attempt_delay'],
+                    self.config['delays']['max_attempt_delay'],
+                )
                 return self.create_account(retry_count + 1, post_creation_mode=post_creation_mode)
 
             return False
@@ -575,6 +676,10 @@ class SpotifyAccountCreator:
 
             if retry_count < self.config['retry_attempts']:
                 logging.info(f"Retrying account creation (attempt {retry_count + 1})")
+                self._sleep_random(
+                    self.config['delays']['min_attempt_delay'],
+                    self.config['delays']['max_attempt_delay'],
+                )
                 return self.create_account(retry_count + 1, post_creation_mode=post_creation_mode)
 
             return False
@@ -605,41 +710,54 @@ class SpotifyAccountCreator:
 
 
 if __name__ == "__main__":
-    # Example usage with proxy list
-    proxy_list = [
-        "http://proxy1.example.com:8080",
-        "http://proxy2.example.com:8080",
-        # Add more proxies as needed
-    ]
+    parser = argparse.ArgumentParser(
+        description='Spotify Account Creator (educational automation testing tool).'
+    )
+    parser.add_argument('--count', type=int, default=1, help='Number of account creation attempts.')
+    parser.add_argument('--config', default='config.json', help='Path to config JSON file.')
+    parser.add_argument('--proxy', action='append', default=[], help='Proxy URL. Can be set multiple times.')
+    parser.add_argument('--use-proxy', action='store_true', help='Enable proxy usage.')
+    parser.add_argument('--captcha', action='store_true', help='Enable 2Captcha integration.')
+    parser.add_argument(
+        '--mode',
+        choices=[
+            POST_CREATION_MODE_ACCOUNT_ONLY,
+            POST_CREATION_MODE_PLAYLIST_FOLLOW_ARTISTS,
+            POST_CREATION_MODE_PLAYLIST_FOLLOW_ARTISTS_PLAY_REPEAT,
+        ],
+        default=None,
+        help='Post-creation mode override.',
+    )
+    parser.add_argument('--export', choices=['csv', 'json'], default='csv', help='Export format.')
+    args = parser.parse_args()
 
     creator = SpotifyAccountCreator(
-        use_proxy=True,  # Set to True if using proxy
-        proxy_list=proxy_list,  # Add your proxy list here
-        use_captcha_solver=False,  # Set to True if using 2Captcha
-        config_path='config.json',  # Path to your config file
+        use_proxy=args.use_proxy,
+        proxy_list=args.proxy,
+        use_captcha_solver=args.captcha,
+        config_path=args.config,
     )
 
+    success_count = 0
     try:
-        for i in range(5):
-            logging.info(f"\nAttempting to create account {i+1}...")
+        for i in range(max(1, args.count)):
+            logging.info("\n[%s/%s] Starting account creation attempt...", i + 1, max(1, args.count))
 
-            # Modes:
-            # - account_only
-            # - playlist_follow_artists
-            # - playlist_follow_artists_play_repeat
-            if creator.create_account(post_creation_mode=None):
-                logging.info("Account created successfully!")
+            if creator.create_account(post_creation_mode=args.mode):
+                success_count += 1
+                logging.info("Attempt successful (%s/%s).", success_count, i + 1)
             else:
-                logging.error("Failed to create account")
+                logging.error("Attempt failed (%s/%s).", i + 1, max(1, args.count))
 
-            delay = random.uniform(
-                creator.config['delays']['min_attempt_delay'],
-                creator.config['delays']['max_attempt_delay'],
-            )
-            logging.info(f"Waiting {delay:.2f} seconds before next attempt...")
-            time.sleep(delay)
+            if i + 1 < max(1, args.count):
+                delay = random.uniform(
+                    creator.config['delays']['min_attempt_delay'],
+                    creator.config['delays']['max_attempt_delay'],
+                )
+                logging.info("Waiting %.2f seconds before next attempt...", delay)
+                time.sleep(delay)
 
-        creator.export_accounts(format='csv')
-
+        creator.export_accounts(format=args.export)
+        logging.info("Finished. Success rate: %s/%s", success_count, max(1, args.count))
     finally:
         creator.close()
