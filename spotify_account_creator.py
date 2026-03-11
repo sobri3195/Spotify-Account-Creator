@@ -19,6 +19,7 @@ from selenium.common.exceptions import (
     TimeoutException,
     ElementClickInterceptedException,
     WebDriverException,
+    InvalidSessionIdException,
 )
 from webdriver_manager.chrome import ChromeDriverManager
 from faker import Faker
@@ -215,6 +216,31 @@ class SpotifyAccountCreator:
         self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         self.driver.execute_script("Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]})")
         self.driver.execute_script("Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']})")
+
+    def _refresh_driver_session(self, reason: str = ""):
+        if reason:
+            logging.info("Refreshing browser session: %s", reason)
+
+        old_driver = getattr(self, 'driver', None)
+        if old_driver is not None:
+            try:
+                old_driver.quit()
+            except Exception:
+                pass
+
+        self.setup_driver()
+
+    @staticmethod
+    def _is_proxy_connection_error(error: Exception) -> bool:
+        msg = str(error).lower()
+        return 'err_proxy_connection_failed' in msg or 'proxy connection failed' in msg
+
+    @staticmethod
+    def _is_invalid_session_error(error: Exception) -> bool:
+        if isinstance(error, InvalidSessionIdException):
+            return True
+        msg = str(error).lower()
+        return 'invalid session id' in msg or 'not connected to devtools' in msg
 
     def _sleep_random(self, min_seconds: float, max_seconds: float):
         time.sleep(random.uniform(min_seconds, max_seconds))
@@ -582,6 +608,9 @@ class SpotifyAccountCreator:
         """
 
         try:
+            if getattr(self, 'driver', None) is None:
+                self.setup_driver()
+
             self.driver.get('https://www.spotify.com/signup')
             self.sleep_page_load()
             self._dismiss_cookie_banner()
@@ -673,6 +702,9 @@ class SpotifyAccountCreator:
 
         except Exception as e:
             logging.error(f"Error creating account: {str(e)}")
+
+            if self._is_proxy_connection_error(e) or self._is_invalid_session_error(e):
+                self._refresh_driver_session(reason='webdriver session became unusable')
 
             if retry_count < self.config['retry_attempts']:
                 logging.info(f"Retrying account creation (attempt {retry_count + 1})")
