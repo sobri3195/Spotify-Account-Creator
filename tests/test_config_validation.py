@@ -2,6 +2,8 @@ import json
 import tempfile
 import unittest
 
+from selenium.webdriver.common.by import By
+
 from spotify_account_creator import (
     POST_CREATION_MODE_ACCOUNT_ONLY,
     SpotifyAccountCreator,
@@ -55,6 +57,16 @@ class DriverRecoveryTests(unittest.TestCase):
     def test_invalid_session_error_is_detected(self):
         err = Exception("invalid session id: session deleted as the browser has closed the connection")
         self.assertTrue(SpotifyAccountCreator._is_invalid_session_error(err))
+
+
+class SignupFieldSelectorTests(unittest.TestCase):
+    def test_email_candidates_include_modern_selectors(self):
+        candidates = SpotifyAccountCreator._field_candidates('email')
+        self.assertIn((By.CSS_SELECTOR, "input[type='email']"), candidates)
+        self.assertIn((By.CSS_SELECTOR, "input[autocomplete='email']"), candidates)
+
+    def test_unknown_field_candidates_empty(self):
+        self.assertEqual(SpotifyAccountCreator._field_candidates('does_not_exist'), [])
 
 
 if __name__ == '__main__':
