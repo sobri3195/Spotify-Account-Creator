@@ -344,6 +344,93 @@ class SpotifyAccountCreator:
         self.human_like_typing(field, value)
         return True
 
+    def _fill_field_js_fallback(self, candidates: List[Tuple[str, str]], value: str, timeout: int = 10) -> bool:
+        """Fallback for modern controlled inputs that ignore send_keys.
+
+        Some signup forms now rely on JS frameworks that only register values when
+        bubbling input/change events are dispatched.
+        """
+        field = self._find_first(candidates, timeout=timeout)
+        if not field:
+            return False
+
+        try:
+            self.driver.execute_script(
+                """
+                const el = arguments[0];
+                const val = arguments[1];
+                el.focus();
+                el.value = val;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                el.blur();
+                """,
+                field,
+                value,
+            )
+            return True
+        except Exception:
+            return False
+
+    def _fill_field_resilient(self, candidates: List[Tuple[str, str]], value: str, timeout: int = 10) -> bool:
+        if self._fill_field(candidates, value, timeout=timeout):
+            return True
+        return self._fill_field_js_fallback(candidates, value, timeout=timeout)
+
+    @staticmethod
+    def _field_candidates(field_name: str) -> List[Tuple[str, str]]:
+        candidates = {
+            'email': [
+                (By.ID, 'email'),
+                (By.NAME, 'email'),
+                (By.CSS_SELECTOR, "input[type='email']"),
+                (By.CSS_SELECTOR, "input[autocomplete='email']"),
+                (By.CSS_SELECTOR, "input[data-testid='email-input']"),
+            ],
+            'confirm_email': [
+                (By.ID, 'confirm'),
+                (By.NAME, 'confirm'),
+                (By.CSS_SELECTOR, "input[name='confirm_email']"),
+                (By.CSS_SELECTOR, "input[data-testid='confirm-email-input']"),
+            ],
+            'password': [
+                (By.ID, 'password'),
+                (By.NAME, 'password'),
+                (By.CSS_SELECTOR, "input[type='password']"),
+                (By.CSS_SELECTOR, "input[autocomplete='new-password']"),
+                (By.CSS_SELECTOR, "input[data-testid='password-input']"),
+            ],
+            'display_name': [
+                (By.ID, 'displayname'),
+                (By.NAME, 'displayname'),
+                (By.NAME, 'display_name'),
+                (By.NAME, 'username'),
+                (By.CSS_SELECTOR, "input[autocomplete='nickname']"),
+                (By.CSS_SELECTOR, "input[data-testid='display-name-input']"),
+            ],
+            'day': [
+                (By.ID, 'day'),
+                (By.NAME, 'day'),
+                (By.NAME, 'birth_day'),
+                (By.CSS_SELECTOR, "input[placeholder='DD']"),
+                (By.CSS_SELECTOR, "input[data-testid='day-input']"),
+            ],
+            'month': [
+                (By.ID, 'month'),
+                (By.NAME, 'month'),
+                (By.NAME, 'birth_month'),
+                (By.CSS_SELECTOR, "select[data-testid='month-select']"),
+            ],
+            'year': [
+                (By.ID, 'year'),
+                (By.NAME, 'year'),
+                (By.NAME, 'birth_year'),
+                (By.CSS_SELECTOR, "input[placeholder='YYYY']"),
+                (By.CSS_SELECTOR, "input[data-testid='year-input']"),
+            ],
+        }
+        return candidates.get(field_name, [])
+
     def _select_dropdown_value(self, candidates: List[Tuple[str, str]], value: str, timeout: int = 10) -> bool:
         field = self._find_first(candidates, timeout=timeout)
         if not field:
@@ -621,20 +708,20 @@ class SpotifyAccountCreator:
             birth_year, birth_month, birth_day = user_data['birth_date'].split('-')
 
             required_fields = [
-                self._fill_field([(By.ID, 'email'), (By.NAME, 'email')], user_data['email']),
-                self._fill_field([(By.ID, 'confirm'), (By.NAME, 'confirm')], user_data['email']),
-                self._fill_field([(By.ID, 'password'), (By.NAME, 'password')], user_data['password']),
-                self._fill_field([(By.ID, 'displayname'), (By.NAME, 'displayname')], user_data['display_name']),
-                self._fill_field([(By.ID, 'day'), (By.NAME, 'day')], birth_day),
-                self._fill_field([(By.ID, 'year'), (By.NAME, 'year')], birth_year),
+                self._fill_field_resilient(self._field_candidates('email'), user_data['email']),
+                self._fill_field_resilient(self._field_candidates('confirm_email'), user_data['email']),
+                self._fill_field_resilient(self._field_candidates('password'), user_data['password']),
+                self._fill_field_resilient(self._field_candidates('display_name'), user_data['display_name']),
+                self._fill_field_resilient(self._field_candidates('day'), birth_day),
+                self._fill_field_resilient(self._field_candidates('year'), birth_year),
             ]
 
             month_filled = self._select_dropdown_value(
-                [(By.ID, 'month'), (By.NAME, 'month')],
+                self._field_candidates('month'),
                 str(int(birth_month)),
             )
             if not month_filled:
-                month_filled = self._fill_field([(By.ID, 'month'), (By.NAME, 'month')], birth_month)
+                month_filled = self._fill_field_resilient(self._field_candidates('month'), birth_month)
             required_fields.append(month_filled)
 
             if not all(required_fields):
