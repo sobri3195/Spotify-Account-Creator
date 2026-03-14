@@ -387,8 +387,12 @@ class SpotifyAccountCreator:
             return True
         return self._fill_field_js_fallback(candidates, value, timeout=timeout)
 
-    def _click_next_step(self) -> bool:
-        """Click the intermediate signup step button (Next/Suivant)."""
+    def _click_next_step(self, expected_next_fields: Optional[List[str]] = None) -> bool:
+        """Click the intermediate signup step button (Next/Suivant).
+
+        expected_next_fields can be provided to verify that the form advanced
+        to the next step by waiting for one of those fields.
+        """
         next_button = self._find_first(
             [
                 (By.CSS_SELECTOR, "button[data-encore-id='buttonPrimary']"),
@@ -404,12 +408,18 @@ class SpotifyAccountCreator:
         if not self._safe_click(next_button):
             return False
 
-        # Wait until a known field from the next step is visible.
-        step_two_field = self._find_first(
-            self._field_candidates('password') + self._field_candidates('display_name'),
-            timeout=8,
-        )
-        return step_two_field is not None
+        if not expected_next_fields:
+            return True
+
+        next_step_candidates: List[Tuple[str, str]] = []
+        for field in expected_next_fields:
+            next_step_candidates.extend(self._field_candidates(field))
+
+        if not next_step_candidates:
+            return True
+
+        next_step_field = self._find_first(next_step_candidates, timeout=8)
+        return next_step_field is not None
 
     @staticmethod
     def _field_candidates(field_name: str) -> List[Tuple[str, str]]:
@@ -744,11 +754,20 @@ class SpotifyAccountCreator:
             if not email_filled:
                 logging.warning("Email field was not found. UI layout may have changed.")
 
-            self._click_next_step()
+            if not self._click_next_step(expected_next_fields=['password']):
+                logging.warning("Could not advance from email step to password step.")
+
+            password_filled = self._fill_field_resilient(
+                self._field_candidates('password'),
+                user_data['password'],
+            )
+            if not password_filled:
+                logging.warning("Password field was not found. UI layout may have changed.")
+
+            # Spotify now uses a multi-step signup flow; advance explicitly.
+            self._click_next_step(expected_next_fields=['display_name', 'day', 'month', 'year'])
 
             required_fields = [
-                self._fill_field_resilient(self._field_candidates('confirm_email'), user_data['email']),
-                self._fill_field_resilient(self._field_candidates('password'), user_data['password']),
                 self._fill_field_resilient(self._field_candidates('display_name'), user_data['display_name']),
                 self._fill_field_resilient(self._field_candidates('day'), birth_day),
                 self._fill_field_resilient(self._field_candidates('year'), birth_year),
