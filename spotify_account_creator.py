@@ -11,6 +11,7 @@ from urllib.parse import urljoin
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.support import expected_conditions as EC
@@ -334,6 +335,15 @@ class SpotifyAccountCreator:
             element.clear()
         except Exception:
             pass
+        try:
+            element.send_keys(Keys.CONTROL, 'a')
+            element.send_keys(Keys.DELETE)
+        except Exception:
+            pass
+        try:
+            self.driver.execute_script("arguments[0].value='';", element)
+        except Exception:
+            pass
 
     def _fill_field(self, candidates: List[Tuple[str, str]], value: str, timeout: int = 10) -> bool:
         field = self._find_first(candidates, timeout=timeout)
@@ -377,6 +387,30 @@ class SpotifyAccountCreator:
             return True
         return self._fill_field_js_fallback(candidates, value, timeout=timeout)
 
+    def _click_next_step(self) -> bool:
+        """Click the intermediate signup step button (Next/Suivant)."""
+        next_button = self._find_first(
+            [
+                (By.CSS_SELECTOR, "button[data-encore-id='buttonPrimary']"),
+                (By.XPATH, "//button[contains(., 'Next')]"),
+                (By.XPATH, "//button[contains(., 'Suivant')]"),
+                (By.XPATH, "//button[contains(., 'Continue')]"),
+            ],
+            timeout=8,
+            clickable=True,
+        )
+        if not next_button:
+            return False
+        if not self._safe_click(next_button):
+            return False
+
+        # Wait until a known field from the next step is visible.
+        step_two_field = self._find_first(
+            self._field_candidates('password') + self._field_candidates('display_name'),
+            timeout=8,
+        )
+        return step_two_field is not None
+
     @staticmethod
     def _field_candidates(field_name: str) -> List[Tuple[str, str]]:
         candidates = {
@@ -404,7 +438,6 @@ class SpotifyAccountCreator:
                 (By.ID, 'displayname'),
                 (By.NAME, 'displayname'),
                 (By.NAME, 'display_name'),
-                (By.NAME, 'username'),
                 (By.CSS_SELECTOR, "input[autocomplete='nickname']"),
                 (By.CSS_SELECTOR, "input[data-testid='display-name-input']"),
             ],
@@ -707,8 +740,13 @@ class SpotifyAccountCreator:
 
             birth_year, birth_month, birth_day = user_data['birth_date'].split('-')
 
+            email_filled = self._fill_field_resilient(self._field_candidates('email'), user_data['email'])
+            if not email_filled:
+                logging.warning("Email field was not found. UI layout may have changed.")
+
+            self._click_next_step()
+
             required_fields = [
-                self._fill_field_resilient(self._field_candidates('email'), user_data['email']),
                 self._fill_field_resilient(self._field_candidates('confirm_email'), user_data['email']),
                 self._fill_field_resilient(self._field_candidates('password'), user_data['password']),
                 self._fill_field_resilient(self._field_candidates('display_name'), user_data['display_name']),
