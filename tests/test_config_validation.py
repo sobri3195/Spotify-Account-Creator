@@ -68,6 +68,18 @@ class SignupFieldSelectorTests(unittest.TestCase):
     def test_unknown_field_candidates_empty(self):
         self.assertEqual(SpotifyAccountCreator._field_candidates('does_not_exist'), [])
 
+    def test_profile_field_candidates_include_fallback_selectors(self):
+        display_name_candidates = SpotifyAccountCreator._field_candidates('display_name')
+        self.assertIn((By.CSS_SELECTOR, "input[aria-label*='name' i]"), display_name_candidates)
+
+        month_candidates = SpotifyAccountCreator._field_candidates('month')
+        self.assertIn((By.CSS_SELECTOR, "select[aria-label*='month' i]"), month_candidates)
+
+    def test_gender_candidates_do_not_depend_on_label_language(self):
+        gender_candidates = SpotifyAccountCreator._gender_candidates('male')
+        self.assertIn((By.CSS_SELECTOR, "input[type='radio'][name='gender']"), gender_candidates)
+        self.assertTrue(any(by == By.XPATH for by, _ in gender_candidates))
+
 
 if __name__ == '__main__':
     unittest.main()
