@@ -387,6 +387,70 @@ class SpotifyAccountCreator:
             return True
         return self._fill_field_js_fallback(candidates, value, timeout=timeout)
 
+    @staticmethod
+    def _gender_candidates(gender: str) -> List[Tuple[str, str]]:
+        normalized = gender.lower().strip()
+        gender_tokens = {
+            'male': ['male', 'man', 'm'],
+            'female': ['female', 'woman', 'f'],
+            'non-binary': ['nonbinary', 'non-binary', 'non_binary', 'nb', 'x'],
+        }.get(normalized, [normalized])
+
+        candidates: List[Tuple[str, str]] = []
+        for token in gender_tokens:
+            escaped_token = token.replace("'", "\\'")
+            candidates.extend(
+                [
+                    (By.CSS_SELECTOR, f"input[type='radio'][value*='{token}']"),
+                    (By.CSS_SELECTOR, f"input[type='radio'][id*='{token}']"),
+                    (By.CSS_SELECTOR, f"input[type='radio'][name*='{token}']"),
+                    (By.CSS_SELECTOR, f"input[type='radio'][data-testid*='{token}']"),
+                    (
+                        By.XPATH,
+                        "//input[@type='radio' and "
+                        f"(contains(translate(@value,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{escaped_token}') "
+                        "or contains(translate(@id,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), "
+                        f"'{escaped_token}') "
+                        "or contains(translate(@name,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), "
+                        f"'{escaped_token}'))]",
+                    ),
+                ]
+            )
+
+        candidates.extend(
+            [
+                (By.CSS_SELECTOR, "input[type='radio'][name='gender']"),
+                (By.CSS_SELECTOR, "input[type='radio'][name*='gender']"),
+                (By.CSS_SELECTOR, "input[type='radio'][id*='gender']"),
+            ]
+        )
+        return candidates
+
+    def _select_gender_resilient(self, gender: str, timeout: int = 8) -> bool:
+        candidates = self._gender_candidates(gender)
+        radio = self._find_first(candidates, timeout=timeout)
+        if not radio:
+            logging.error("Gender radio input not found for value '%s'.", gender)
+            return False
+
+        if self._safe_click(radio):
+            return True
+
+        try:
+            self.driver.execute_script(
+                """
+                const radio = arguments[0];
+                radio.checked = true;
+                radio.dispatchEvent(new Event('input', { bubbles: true }));
+                radio.dispatchEvent(new Event('change', { bubbles: true }));
+                """,
+                radio,
+            )
+            return True
+        except Exception as error:
+            logging.error("Failed to select gender radio '%s': %s", gender, error)
+            return False
+
     def _click_next_step(self, expected_next_fields: Optional[List[str]] = None) -> bool:
         """Click the intermediate signup step button (Next/Suivant).
 
@@ -450,6 +514,10 @@ class SpotifyAccountCreator:
                 (By.NAME, 'display_name'),
                 (By.CSS_SELECTOR, "input[autocomplete='nickname']"),
                 (By.CSS_SELECTOR, "input[data-testid='display-name-input']"),
+                (By.CSS_SELECTOR, "input[placeholder*='Name']"),
+                (By.CSS_SELECTOR, "input[aria-label*='name' i]"),
+                (By.CSS_SELECTOR, "input[id*='display']"),
+                (By.CSS_SELECTOR, "input[name*='display']"),
             ],
             'day': [
                 (By.ID, 'day'),
@@ -457,12 +525,17 @@ class SpotifyAccountCreator:
                 (By.NAME, 'birth_day'),
                 (By.CSS_SELECTOR, "input[placeholder='DD']"),
                 (By.CSS_SELECTOR, "input[data-testid='day-input']"),
+                (By.CSS_SELECTOR, "input[aria-label*='day' i]"),
+                (By.CSS_SELECTOR, "input[id*='day']"),
             ],
             'month': [
                 (By.ID, 'month'),
                 (By.NAME, 'month'),
                 (By.NAME, 'birth_month'),
                 (By.CSS_SELECTOR, "select[data-testid='month-select']"),
+                (By.CSS_SELECTOR, "select[aria-label*='month' i]"),
+                (By.CSS_SELECTOR, "select[id*='month']"),
+                (By.CSS_SELECTOR, "input[aria-label*='month' i]"),
             ],
             'year': [
                 (By.ID, 'year'),
@@ -470,6 +543,8 @@ class SpotifyAccountCreator:
                 (By.NAME, 'birth_year'),
                 (By.CSS_SELECTOR, "input[placeholder='YYYY']"),
                 (By.CSS_SELECTOR, "input[data-testid='year-input']"),
+                (By.CSS_SELECTOR, "input[aria-label*='year' i]"),
+                (By.CSS_SELECTOR, "input[id*='year']"),
             ],
         }
         return candidates.get(field_name, [])
@@ -767,11 +842,14 @@ class SpotifyAccountCreator:
             # Spotify now uses a multi-step signup flow; advance explicitly.
             self._click_next_step(expected_next_fields=['display_name', 'day', 'month', 'year'])
 
-            required_fields = [
-                self._fill_field_resilient(self._field_candidates('display_name'), user_data['display_name']),
-                self._fill_field_resilient(self._field_candidates('day'), birth_day),
-                self._fill_field_resilient(self._field_candidates('year'), birth_year),
-            ]
+            field_results = {
+                'display_name': self._fill_field_resilient(
+                    self._field_candidates('display_name'),
+                    user_data['display_name'],
+                ),
+                'day': self._fill_field_resilient(self._field_candidates('day'), birth_day),
+                'year': self._fill_field_resilient(self._field_candidates('year'), birth_year),
+            }
 
             month_filled = self._select_dropdown_value(
                 self._field_candidates('month'),
@@ -779,20 +857,22 @@ class SpotifyAccountCreator:
             )
             if not month_filled:
                 month_filled = self._fill_field_resilient(self._field_candidates('month'), birth_month)
-            required_fields.append(month_filled)
+            field_results['month'] = month_filled
 
-            if not all(required_fields):
-                logging.warning("One or more signup fields were not found. UI layout may have changed.")
+            gender_selected = self._select_gender_resilient(user_data['gender'])
+            field_results['gender'] = gender_selected
 
-            try:
-                gender_radio = self.wait_and_find_element(
-                    By.XPATH,
-                    f"//label[contains(text(), '{user_data['gender']}')]",
+            missing_fields = [field for field, filled in field_results.items() if not filled]
+            if missing_fields:
+                logging.error(
+                    "Required profile setup fields missing/failed: %s",
+                    ', '.join(missing_fields),
                 )
-                if gender_radio:
-                    self._safe_click(gender_radio)
-            except ElementClickInterceptedException:
-                logging.warning("Could not click gender radio button")
+                return False
+
+            if not self._click_next_step(expected_next_fields=[]):
+                logging.error("Could not advance from profile setup step after filling required fields.")
+                return False
 
             if self.use_captcha_solver:
                 captcha_response = self.solve_captcha()
