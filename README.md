@@ -25,7 +25,7 @@ GitHub: [sobri3195](https://github.com/sobri3195)
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.10-3.12 recommended (Python 3.13 may fail for pinned package versions)
 - Chrome browser installed
 - (Optional) 2Captcha API key for CAPTCHA solving
 - (Optional) Proxy server details
@@ -39,13 +39,24 @@ git clone https://github.com/sobri3195/spotify-account-creator.git
 cd spotify-account-creator
 ```
 
-2. Install the required packages:
+2. Create and activate a virtual environment (recommended):
 
 ```bash
+python -m venv .venv
+# Windows (CMD)
+.venv\Scripts\activate
+```
+
+3. Install the required packages:
+
+```bash
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-3. Configure your settings:
+If you are using Python 3.13 and installation fails for `pandas`, install Python 3.12 and run the steps above again.
+
+4. Configure your settings:
 
 - Copy `.env.example` to `.env` and add your 2Captcha API key if using CAPTCHA solver
 - Edit `config.json` to customize settings if needed
