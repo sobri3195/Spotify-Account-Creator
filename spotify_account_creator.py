@@ -7,7 +7,7 @@ import argparse
 import pandas as pd
 from datetime import datetime
 from typing import Optional, List, Dict, Tuple, Set
-from urllib.parse import urljoin
+from urllib.parse import parse_qs, urljoin, urlparse
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -278,20 +278,90 @@ class SpotifyAccountCreator:
         }
 
     def solve_captcha(self) -> Optional[str]:
-        """Solve CAPTCHA if enabled"""
+        """Solve CAPTCHA if enabled.
+
+        Spotify may only render CAPTCHA after the first submit attempt.
+        This method waits briefly for a sitekey to become available.
+        """
         if not self.use_captcha_solver:
             return None
 
         try:
-            WebDriverWait(self.driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'g-recaptcha')))
+            site_key, captcha_kind = self._extract_captcha_sitekey(timeout=20)
+            if not site_key:
+                logging.info("CAPTCHA widget not detected yet; skipping solver for this attempt.")
+                return None
 
-            site_key = self.driver.find_element(By.CLASS_NAME, 'g-recaptcha').get_attribute('data-sitekey')
-
+            logging.info("Detected %s CAPTCHA widget. Requesting solution from 2Captcha.", captcha_kind)
             result = self.solver.recaptcha(sitekey=site_key, url=self.driver.current_url)
             return result['code']
         except Exception as e:
             logging.error(f"Error solving CAPTCHA: {str(e)}")
             return None
+
+    def _extract_captcha_sitekey(self, timeout: int = 20) -> Tuple[Optional[str], Optional[str]]:
+        """Try to extract CAPTCHA sitekey from common widget patterns."""
+        end_time = time.time() + timeout
+        while time.time() < end_time:
+            try:
+                # reCAPTCHA widget container
+                container = self.driver.find_element(By.CSS_SELECTOR, ".g-recaptcha[data-sitekey]")
+                sitekey = container.get_attribute("data-sitekey")
+                if sitekey:
+                    return sitekey, "reCAPTCHA"
+            except Exception:
+                pass
+
+            try:
+                # hCaptcha widgets often expose a data-sitekey attribute.
+                container = self.driver.find_element(By.CSS_SELECTOR, ".h-captcha[data-sitekey], [data-sitekey][data-captcha]")
+                sitekey = container.get_attribute("data-sitekey")
+                if sitekey:
+                    return sitekey, "hCaptcha"
+            except Exception:
+                pass
+
+            # Fallback: parse iframe src query params.
+            try:
+                iframe_candidates = self.driver.find_elements(By.CSS_SELECTOR, "iframe[src*='recaptcha'], iframe[src*='hcaptcha']")
+                for iframe in iframe_candidates:
+                    src = iframe.get_attribute("src") or ""
+                    params = parse_qs(urlparse(src).query)
+                    for key in ("k", "sitekey"):
+                        value = params.get(key, [None])[0]
+                        if value:
+                            kind = "hCaptcha" if "hcaptcha" in src else "reCAPTCHA"
+                            return value, kind
+            except Exception:
+                pass
+
+            time.sleep(0.5)
+
+        return None, None
+
+    def _inject_captcha_response(self, captcha_response: str):
+        """Inject solved token into standard CAPTCHA response fields."""
+        self.driver.execute_script(
+            """
+            const value = arguments[0];
+            const selectors = [
+                '#g-recaptcha-response',
+                'textarea[name="g-recaptcha-response"]',
+                'textarea[name="h-captcha-response"]',
+                'textarea[name="hcaptcha_response"]',
+            ];
+            selectors.forEach((selector) => {
+                const el = document.querySelector(selector);
+                if (!el) return;
+                el.style.display = 'block';
+                el.value = value;
+                el.innerHTML = value;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+            """,
+            captcha_response,
+        )
 
     def wait_and_find_element(self, by, value, timeout=10):
         """Wait for element to be present and return it"""
@@ -874,14 +944,6 @@ class SpotifyAccountCreator:
                 logging.error("Could not advance from profile setup step after filling required fields.")
                 return False
 
-            if self.use_captcha_solver:
-                captcha_response = self.solve_captcha()
-                if captcha_response:
-                    self.driver.execute_script(
-                        "document.getElementById('g-recaptcha-response').innerHTML=arguments[0]",
-                        captcha_response,
-                    )
-
             submit_button = self._find_first(
                 [
                     (By.ID, 'register-button'),
@@ -896,6 +958,24 @@ class SpotifyAccountCreator:
             else:
                 logging.error("Submit button not found. Cannot continue account creation.")
                 return False
+
+            # Spotify can show CAPTCHA only after the first submit click.
+            if self.use_captcha_solver:
+                captcha_response = self.solve_captcha()
+                if captcha_response:
+                    self._inject_captcha_response(captcha_response)
+                    self.sleep_action()
+                    submit_button = self._find_first(
+                        [
+                            (By.ID, 'register-button'),
+                            (By.CSS_SELECTOR, "button[data-testid='submit']"),
+                            (By.XPATH, "//button[@type='submit']"),
+                        ],
+                        timeout=10,
+                        clickable=True,
+                    )
+                    if submit_button:
+                        self._safe_click(submit_button)
 
             time.sleep(5)
             if self.verify_success():
