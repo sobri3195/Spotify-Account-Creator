@@ -65,6 +65,27 @@ class SignupFieldSelectorTests(unittest.TestCase):
         self.assertIn((By.CSS_SELECTOR, "input[type='email']"), candidates)
         self.assertIn((By.CSS_SELECTOR, "input[autocomplete='email']"), candidates)
 
+    def test_signup_field_candidates_include_requested_current_ids(self):
+        self.assertIn((By.ID, 'username'), SpotifyAccountCreator._field_candidates('email'))
+        self.assertIn((By.ID, 'new-password'), SpotifyAccountCreator._field_candidates('password'))
+        self.assertIn((By.ID, 'displayName'), SpotifyAccountCreator._field_candidates('display_name'))
+
+    def test_gender_candidates_include_requested_visible_radio_spans(self):
+        self.assertIn(
+            (
+                By.XPATH,
+                "//*[@id='__next']/main/main/section/div/form/div[1]/div[2]/div/section/div[3]/fieldset/div/div/div[1]/label/span[1]",
+            ),
+            SpotifyAccountCreator._gender_candidates('male'),
+        )
+        self.assertIn(
+            (
+                By.XPATH,
+                "//*[@id='__next']/main/main/section/div/form/div[1]/div[2]/div/section/div[3]/fieldset/div/div/div[2]/label/span[1]",
+            ),
+            SpotifyAccountCreator._gender_candidates('female'),
+        )
+
     def test_unknown_field_candidates_empty(self):
         self.assertEqual(SpotifyAccountCreator._field_candidates('does_not_exist'), [])
 

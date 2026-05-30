@@ -273,7 +273,7 @@ class SpotifyAccountCreator:
             ),
             'display_name': self.fake.name(),
             'birth_date': self.fake.date_of_birth(minimum_age=18, maximum_age=60).strftime('%Y-%m-%d'),
-            'gender': random.choice(['male', 'female', 'non-binary']),
+            'gender': random.choice(['male', 'female']),
             'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         }
 
@@ -460,13 +460,40 @@ class SpotifyAccountCreator:
     @staticmethod
     def _gender_candidates(gender: str) -> List[Tuple[str, str]]:
         normalized = gender.lower().strip()
+        candidates: List[Tuple[str, str]] = []
+
+        # Spotify's current profile step renders the visible radio control as a
+        # span inside the label. Keep these exact fallbacks before generic radio
+        # locators so the script can click the user-visible control directly.
+        if normalized == 'male':
+            candidates.extend(
+                [
+                    (
+                        By.XPATH,
+                        "//*[@id='__next']/main/main/section/div/form/div[1]/div[2]/div/section/div[3]/fieldset/div/div/div[1]/label/span[1]",
+                    ),
+                ]
+            )
+        elif normalized == 'female':
+            candidates.extend(
+                [
+                    (
+                        By.XPATH,
+                        "//*[@id='next']/main/main/section/div/form/div[1]/div[2]/div/section/div[3]/fieldset/div/div/div[2]/label/span[1]",
+                    ),
+                    (
+                        By.XPATH,
+                        "//*[@id='__next']/main/main/section/div/form/div[1]/div[2]/div/section/div[3]/fieldset/div/div/div[2]/label/span[1]",
+                    ),
+                ]
+            )
+
         gender_tokens = {
             'male': ['male', 'man', 'm'],
             'female': ['female', 'woman', 'f'],
             'non-binary': ['nonbinary', 'non-binary', 'non_binary', 'nb', 'x'],
         }.get(normalized, [normalized])
 
-        candidates: List[Tuple[str, str]] = []
         for token in gender_tokens:
             escaped_token = token.replace("'", "\\'")
             candidates.extend(
@@ -529,6 +556,9 @@ class SpotifyAccountCreator:
         """
         next_button = self._find_first(
             [
+                (By.XPATH, "//*[@id='next']/main/main/section/div/form/button/span"),
+                (By.XPATH, "//*[@id='next']/main/main/section/div/form/div[2]/button/span"),
+                (By.XPATH, "//*[@id='__next']/main/main/section/div/form/div[2]/button/span"),
                 (By.CSS_SELECTOR, "button[data-encore-id='buttonPrimary']"),
                 (By.XPATH, "//button[contains(., 'Next')]"),
                 (By.XPATH, "//button[contains(., 'Suivant')]"),
@@ -564,6 +594,8 @@ class SpotifyAccountCreator:
                 (By.CSS_SELECTOR, "input[type='email']"),
                 (By.CSS_SELECTOR, "input[autocomplete='email']"),
                 (By.CSS_SELECTOR, "input[data-testid='email-input']"),
+                (By.ID, 'username'),
+                (By.XPATH, "//*[@id='username']"),
             ],
             'confirm_email': [
                 (By.ID, 'confirm'),
@@ -577,9 +609,12 @@ class SpotifyAccountCreator:
                 (By.CSS_SELECTOR, "input[type='password']"),
                 (By.CSS_SELECTOR, "input[autocomplete='new-password']"),
                 (By.CSS_SELECTOR, "input[data-testid='password-input']"),
+                (By.ID, 'new-password'),
+                (By.XPATH, "//*[@id='new-password']"),
             ],
             'display_name': [
                 (By.ID, 'displayname'),
+                (By.ID, 'displayName'),
                 (By.NAME, 'displayname'),
                 (By.NAME, 'display_name'),
                 (By.CSS_SELECTOR, "input[autocomplete='nickname']"),
@@ -588,6 +623,7 @@ class SpotifyAccountCreator:
                 (By.CSS_SELECTOR, "input[aria-label*='name' i]"),
                 (By.CSS_SELECTOR, "input[id*='display']"),
                 (By.CSS_SELECTOR, "input[name*='display']"),
+                (By.XPATH, "//*[@id='displayName']"),
             ],
             'day': [
                 (By.ID, 'day'),
@@ -597,6 +633,7 @@ class SpotifyAccountCreator:
                 (By.CSS_SELECTOR, "input[data-testid='day-input']"),
                 (By.CSS_SELECTOR, "input[aria-label*='day' i]"),
                 (By.CSS_SELECTOR, "input[id*='day']"),
+                (By.XPATH, "//*[@id='day']"),
             ],
             'month': [
                 (By.ID, 'month'),
@@ -606,6 +643,7 @@ class SpotifyAccountCreator:
                 (By.CSS_SELECTOR, "select[aria-label*='month' i]"),
                 (By.CSS_SELECTOR, "select[id*='month']"),
                 (By.CSS_SELECTOR, "input[aria-label*='month' i]"),
+                (By.XPATH, "//*[@id='month']"),
             ],
             'year': [
                 (By.ID, 'year'),
@@ -615,6 +653,7 @@ class SpotifyAccountCreator:
                 (By.CSS_SELECTOR, "input[data-testid='year-input']"),
                 (By.CSS_SELECTOR, "input[aria-label*='year' i]"),
                 (By.CSS_SELECTOR, "input[id*='year']"),
+                (By.XPATH, "//*[@id='year']"),
             ],
         }
         return candidates.get(field_name, [])
@@ -656,6 +695,51 @@ class SpotifyAccountCreator:
         if cookie_button:
             self._safe_click(cookie_button)
             self.sleep_action()
+
+    def _open_signup_page(self):
+        """Open Spotify signup and handle the homepage signup button if shown."""
+        self.driver.get('https://www.spotify.com/signup')
+        self.sleep_page_load()
+        self._dismiss_cookie_banner()
+
+        if self._find_first(self._field_candidates('email'), timeout=3):
+            return
+
+        # Some regions land on the homepage/global navigation first. The current
+        # visible signup CTA is the first button in the third nav group.
+        self.driver.get('https://www.spotify.com/')
+        self.sleep_page_load()
+        self._dismiss_cookie_banner()
+        signup_button = self._find_first(
+            [
+                (By.XPATH, "//*[@id='global-nav-bar']/div[3]/div/div[2]/button[1]"),
+                (By.XPATH, "//*[@id='global-nav-bar']//button[1][contains(., 'Sign up') or contains(., 'S’inscrire')]"),
+                (By.CSS_SELECTOR, "a[href*='signup'], button[data-testid*='signup']"),
+            ],
+            timeout=8,
+            clickable=True,
+        )
+        if signup_button:
+            self._safe_click(signup_button)
+            self.sleep_page_load()
+
+    def _click_optional_signup_checkboxes(self):
+        """Click optional signup checkbox controls if Spotify renders them."""
+        optional_checkbox_candidates = [
+            (
+                By.XPATH,
+                "//*[@id='next']/main/main/section/div/form/div[1]/div[2]/div/section/div[4]/div[1]/div/div/label/span[1]",
+            ),
+            (
+                By.XPATH,
+                "//*[@id='__next']/main/main/section/div/form/div[1]/div[2]/div/section/div[4]/div[1]/div/div/label/span[1]",
+            ),
+        ]
+        for candidate in optional_checkbox_candidates:
+            checkbox = self._find_first([candidate], timeout=2, clickable=True)
+            if checkbox:
+                self._safe_click(checkbox)
+                self.sleep_action()
 
     def verify_success(self) -> bool:
         """Verify if account creation was successful"""
@@ -886,9 +970,7 @@ class SpotifyAccountCreator:
             if getattr(self, 'driver', None) is None:
                 self.setup_driver()
 
-            self.driver.get('https://www.spotify.com/signup')
-            self.sleep_page_load()
-            self._dismiss_cookie_banner()
+            self._open_signup_page()
 
             user_data = self.generate_random_data()
             logging.info(f"Attempting to create account with email: {user_data['email']}")
@@ -940,9 +1022,13 @@ class SpotifyAccountCreator:
                 )
                 return False
 
+            self._click_optional_signup_checkboxes()
+
             if not self._click_next_step(expected_next_fields=[]):
                 logging.error("Could not advance from profile setup step after filling required fields.")
                 return False
+
+            self._click_optional_signup_checkboxes()
 
             submit_button = self._find_first(
                 [
