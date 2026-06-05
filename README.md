@@ -1,192 +1,110 @@
-# Spotify Account Creator
+# SignupFormTester
 
-An automated tool for creating Spotify accounts using Python and Selenium. This tool is designed for educational purposes and automation testing.
+SignupFormTester is a safe Selenium QA automation framework for testing signup forms on systems you own or are explicitly authorized to test. It is designed for local/mock form testing and defaults to `http://localhost:8000/signup`.
 
-## Author
+## Safety warning
 
-**Letda Kes Dr. Sobri, S.Kom**  
-Email: muhammadsobrimaulana31@gmail.com  
-GitHub: [sobri3195](https://github.com/sobri3195)
+Use this project only for authorized QA on owned systems. It must not be used to create accounts on third-party services, bypass VPN/proxy checks, bypass bot detection, bypass CAPTCHA, avoid rate limits, or manipulate engagement on any platform.
 
-## Features
+This refactor intentionally excludes:
 
-- Automated Spotify account creation
-- Optional post-creation onboarding:
-  - Follow a target playlist
-  - Follow each artist found in that playlist
-  - (Optional) start playing the playlist and enable repeat
-- Random email and password generation
-- Proxy support with rotation
-- CAPTCHA solving integration (using 2Captcha)
-- Export accounts to CSV or JSON format
-- Anti-detection measures (best-effort)
-- Configurable settings
-- Detailed logging
+- Proxy rotation or proxy configuration.
+- Anti-detection browser fingerprint changes.
+- `navigator.webdriver` spoofing.
+- CAPTCHA solver integrations or CAPTCHA token injection.
+- Fake third-party account export.
+- Post-creation actions such as following artists/playlists or playing content.
 
-## Prerequisites
+## What it does
 
-- Python 3.10-3.12 recommended (Python 3.13 may fail for pinned package versions)
-- Chrome browser installed
-- (Optional) 2Captcha API key for CAPTCHA solving
-- (Optional) Proxy server details
+The framework keeps only safe QA utilities:
 
-## Installation
+- JSON config loading and validation.
+- Local-only signup URL validation, defaulting to `http://localhost:8000/signup`.
+- Delay range sanitization.
+- Retry attempt sanitization.
+- Candidate selector mapping for common signup fields.
+- Safe click and safe clear helpers.
+- Resilient field filling.
+- WebDriver session recovery for invalid Selenium sessions.
 
-1. Clone this repository:
+## Project layout
+
+```text
+signup_form_tester.py          # Safe Selenium QA framework
+config.json                    # Example local/mock test configuration
+tests/test_signup_form_tester.py
+tests/fixtures/signup.html     # Mock signup page fixture
+requirements.txt
+```
+
+## Install
 
 ```bash
-git clone https://github.com/sobri3195/spotify-account-creator.git
-cd spotify-account-creator
+python -m pip install -r requirements.txt
 ```
 
-2. Create and activate a virtual environment (recommended):
+## Run unit tests
 
 ```bash
-python -m venv .venv
-# Windows (CMD)
-.venv\Scripts\activate
+python -m pytest
 ```
 
-3. Install the required packages:
+The unit tests focus on config validation, selector mapping, safe local URL behavior, and the mock fixture. They do not create third-party accounts or contact third-party signup services.
 
-```bash
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
+## Run against the mock fixture
 
-If you are using Python 3.13 and installation fails for `pandas`, install Python 3.12 and run the steps above again.
+The default config points to `http://localhost:8000/signup`. To serve the included fixture at that route, run a simple local server from the `tests/fixtures` directory and map `/signup` to `signup.html` with your preferred development server.
 
-4. Configure your settings:
-
-- Copy `.env.example` to `.env` and add your 2Captcha API key if using CAPTCHA solver
-- Edit `config.json` to customize settings if needed
-
-## Configuration
-
-The tool uses two configuration files:
-
-1. `.env` - For sensitive data:
-
-```
-2CAPTCHA_API_KEY=your_api_key_here
-```
-
-2. `config.json` - For general settings:
+A simpler option is to set `signup_url` in `config.json` to the fixture file URL, for example:
 
 ```json
 {
-  "delays": {
-    "min_typing_delay": 0.1,
-    "max_typing_delay": 0.3,
-    "min_page_load_delay": 2,
-    "max_page_load_delay": 4,
-    "min_attempt_delay": 5,
-    "max_attempt_delay": 10
+  "signup_url": "file:///absolute/path/to/Spotify-Account-Creator/tests/fixtures/signup.html"
+}
+```
+
+Then run:
+
+```bash
+python signup_form_tester.py --config config.json
+```
+
+## Example config
+
+```json
+{
+  "signup_url": "http://localhost:8000/signup",
+  "browser": {
+    "headless": false,
+    "window_size": "1280,900",
+    "page_load_timeout": 20
   },
-  "retry_attempts": 3,
-  "post_creation": {
-    "mode": "account_only",
-    "playlist_url": "https://open.spotify.com/playlist/YOUR_PLAYLIST_ID",
-    "max_artists_to_follow": 25,
-    "max_playlist_scrolls": 12
+  "delays": {
+    "min_typing_delay": 0.0,
+    "max_typing_delay": 0.05,
+    "min_page_load_delay": 0.1,
+    "max_page_load_delay": 0.3,
+    "min_attempt_delay": 0.1,
+    "max_attempt_delay": 0.3,
+    "min_action_delay": 0.0,
+    "max_action_delay": 0.1
+  },
+  "retry_attempts": 2,
+  "success_indicators": ["success-message", "signup-success", "account-created"],
+  "test_user": {
+    "email": "qa@example.test",
+    "password": "CorrectHorseBatteryStaple!23",
+    "display_name": "QA Tester",
+    "day": "12",
+    "month": "5",
+    "year": "1995"
   }
 }
 ```
 
-### Post-creation modes
+## Development notes
 
-Set `post_creation.mode` (or pass `post_creation_mode` to `create_account(...)`) to one of:
-
-- `account_only` (default)
-- `playlist_follow_artists`
-- `playlist_follow_artists_play_repeat`
-
-`playlist_url` should be a full playlist URL, e.g. `https://open.spotify.com/playlist/<id>`.
-
-## Usage
-
-Basic usage:
-
-```python
-from spotify_account_creator import SpotifyAccountCreator
-
-creator = SpotifyAccountCreator()
-
-# Create an account only
-creator.create_account(post_creation_mode="account_only")
-
-# Create an account + follow playlist + follow artists
-creator.create_account(post_creation_mode="playlist_follow_artists")
-
-# Create an account + follow playlist + follow artists + play on repeat
-creator.create_account(post_creation_mode="playlist_follow_artists_play_repeat")
-
-creator.export_accounts(format="csv")
-creator.close()
-```
-
-## CLI Usage (Improved UX)
-
-You can now run the tool from terminal with clear options:
-
-```bash
-python spotify_account_creator.py --count 3 --mode playlist_follow_artists --export csv
-```
-
-Useful flags:
-
-- `--count` Number of account creation attempts
-- `--config` Path to config file (default: `config.json`)
-- `--mode` Override `post_creation.mode` from config
-- `--use-proxy` Enable proxy usage
-- `--proxy` Add proxy URL (repeatable)
-- `--captcha` Enable 2Captcha solver (requires `2CAPTCHA_API_KEY`)
-- `--export` Export format (`csv` or `json`)
-
-Example with proxies:
-
-```bash
-python spotify_account_creator.py --use-proxy --proxy http://127.0.0.1:8080 --count 2
-```
-
-## Important Notes
-
-- Use this tool responsibly and in accordance with Spotify's Terms of Service
-- The tool includes random delays between account creation attempts
-- Consider using proxies to avoid IP-based restrictions
-- CAPTCHA solving requires a valid 2Captcha API key
-- Spotify UI changes frequently; selectors may require updates over time
-
-## Support
-
-If you find this tool useful and would like to support the development, consider making a donation:
-
-[![Donate](https://img.shields.io/badge/Donate-Link-blue)](https://lynk.id/muhsobrimaulana)
-
-## Disclaimer
-
-This tool is for educational purposes only. The author is not responsible for any misuse of this tool. Please use it responsibly and in accordance with Spotify's Terms of Service.
-
-## License
-
-MIT License
-
-Copyright (c) 2024 Letda Kes Dr. Sobri, S.Kom
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+- Keep targets local, such as `localhost`, `127.0.0.1`, `::1`, or a `file://` fixture URL.
+- Keep test data synthetic and limited to systems you control.
+- Do not add evasion, bypass, proxy rotation, CAPTCHA solving, third-party account creation, or engagement automation features.

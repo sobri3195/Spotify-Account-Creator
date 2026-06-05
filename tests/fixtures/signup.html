@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Mock Signup Form</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 42rem; }
+    label { display: block; margin-top: 1rem; }
+    input, select, button { display: block; margin-top: 0.25rem; padding: 0.5rem; width: 100%; }
+    button { margin-top: 1.5rem; }
+    .success-message { background: #e6ffed; border: 1px solid #46a35d; margin-top: 1rem; padding: 1rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Mock Signup Form</h1>
+    <p>This fixture is for authorized local QA automation tests only.</p>
+    <form id="signup-form">
+      <label for="email">Email
+        <input id="email" name="email" type="email" autocomplete="email" data-testid="email-input" required>
+      </label>
+      <label for="password">Password
+        <input id="password" name="password" type="password" autocomplete="new-password" data-testid="password-input" required>
+      </label>
+      <label for="displayName">Display name
+        <input id="displayName" name="display_name" autocomplete="nickname" data-testid="display-name-input" required>
+      </label>
+      <fieldset>
+        <legend>Date of birth</legend>
+        <label for="day">Day
+          <input id="day" name="day" aria-label="day" data-testid="day-input" inputmode="numeric">
+        </label>
+        <label for="month">Month
+          <select id="month" name="month" aria-label="month" data-testid="month-select">
+            <option value="">Select month</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="10">10</option>
+            <option value="11">11</option>
+            <option value="12">12</option>
+          </select>
+        </label>
+        <label for="year">Year
+          <input id="year" name="year" aria-label="year" data-testid="year-input" inputmode="numeric">
+        </label>
+      </fieldset>
+      <button type="submit" data-testid="signup-submit">Sign up</button>
+    </form>
+    <div id="result" aria-live="polite"></div>
+  </main>
+  <script>
+    document.getElementById('signup-form').addEventListener('submit', function (event) {
+      event.preventDefault();
+      document.getElementById('result').innerHTML = '<p class="success-message" data-testid="signup-success">Mock signup submitted successfully.</p>';
+      window.history.replaceState({}, '', '#success');
+    });
+  </script>
+</body>
+</html>
