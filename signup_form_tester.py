@@ -101,6 +101,24 @@ DEFAULT_SIGNUP_URL = "http://localhost:8000/signup"
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 Locator = Tuple[str, str]
 
+# Config keys that would move this local QA harness toward third-party abuse,
+# evasion, or account-creation automation. They are stripped even when nested.
+DISALLOWED_CONFIG_KEYWORDS = (
+    "proxy",
+    "proxies",
+    "proxy_rotation",
+    "captcha",
+    "captcha_solver",
+    "anti_detection",
+    "antidetect",
+    "fingerprint",
+    "navigator_webdriver",
+    "account_export",
+    "post_signup",
+    "engagement",
+)
+
+
 DEFAULT_CONFIG: Dict[str, Any] = {
     "signup_url": DEFAULT_SIGNUP_URL,
     "browser": {
@@ -233,8 +251,62 @@ class SignupFormTester:
             attempts = int(DEFAULT_CONFIG["retry_attempts"])
         return min(max(attempts, 0), 10)
 
+    @staticmethod
+    def _is_disallowed_config_key(key: str) -> bool:
+        """Return True for config keys tied to proxying, evasion, or abuse flows."""
+        normalized = key.lower().replace("-", "_")
+        return any(keyword in normalized for keyword in DISALLOWED_CONFIG_KEYWORDS)
+
+    @classmethod
+    def strip_disallowed_config_keys(
+        cls,
+        value: Any,
+        *,
+        path: Tuple[str, ...] = (),
+    ) -> Tuple[Any, List[str]]:
+        """Remove unsafe config keys recursively and return their dotted paths."""
+        removed: List[str] = []
+        if isinstance(value, Mapping):
+            cleaned: Dict[str, Any] = {}
+            for key, nested_value in value.items():
+                key_text = str(key)
+                nested_path = (*path, key_text)
+                if cls._is_disallowed_config_key(key_text):
+                    removed.append(".".join(nested_path))
+                    continue
+                cleaned_value, nested_removed = cls.strip_disallowed_config_keys(
+                    nested_value,
+                    path=nested_path,
+                )
+                cleaned[key] = cleaned_value
+                removed.extend(nested_removed)
+            return cleaned, removed
+
+        if isinstance(value, list):
+            cleaned_list: List[Any] = []
+            for index, item in enumerate(value):
+                cleaned_item, nested_removed = cls.strip_disallowed_config_keys(
+                    item,
+                    path=(*path, str(index)),
+                )
+                cleaned_list.append(cleaned_item)
+                removed.extend(nested_removed)
+            return cleaned_list, removed
+
+        return value, removed
+
+    def enforce_safe_config_scope(self) -> List[str]:
+        """Strip unsupported proxy/evasion options from loaded configuration."""
+        cleaned_config, removed_paths = self.strip_disallowed_config_keys(self.config)
+        self.config = cleaned_config
+        for removed_path in removed_paths:
+            LOGGER.warning("Removed unsupported unsafe config key: %s", removed_path)
+        return removed_paths
+
     def validate_config(self) -> None:
         """Validate and self-heal config values while enforcing local-only targets."""
+        self.enforce_safe_config_scope()
+
         url = str(self.config.get("signup_url") or DEFAULT_SIGNUP_URL)
         if not self._is_local_url(url):
             LOGGER.warning("Non-local signup_url %r is not allowed. Using %s.", url, DEFAULT_SIGNUP_URL)

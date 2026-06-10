@@ -51,6 +51,36 @@ class ConfigValidationTests(unittest.TestCase):
         self.assertEqual(SignupFormTester.sanitize_retry_attempts(999), 10)
         self.assertEqual(SignupFormTester.sanitize_retry_attempts("bad"), 2)
 
+    def test_unsafe_proxy_and_evasion_config_keys_are_removed(self):
+        tester = self.make_tester(
+            {
+                "proxy_rotation": {"enabled": True},
+                "browser": {
+                    "headless": True,
+                    "anti_detection": True,
+                    "fingerprint_profile": "spoofed",
+                },
+                "nested": [
+                    {"captcha_solver": "service"},
+                    {"safe_note": "kept"},
+                ],
+            }
+        )
+
+        self.assertNotIn("proxy_rotation", tester.config)
+        self.assertNotIn("anti_detection", tester.config["browser"])
+        self.assertNotIn("fingerprint_profile", tester.config["browser"])
+        self.assertNotIn("captcha_solver", tester.config["nested"][0])
+        self.assertEqual(tester.config["nested"][1]["safe_note"], "kept")
+
+    def test_strip_disallowed_config_keys_reports_dotted_paths(self):
+        cleaned, removed = SignupFormTester.strip_disallowed_config_keys(
+            {"safe": {"proxy_url": "http://localhost:9000"}, "items": [{"captcha": True}]}
+        )
+
+        self.assertEqual(cleaned, {"safe": {}, "items": [{}]})
+        self.assertEqual(removed, ["safe.proxy_url", "items.0.captcha"])
+
 
 class DriverRecoveryTests(unittest.TestCase):
     def test_invalid_session_error_is_detected_from_exception_type(self):
