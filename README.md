@@ -23,6 +23,7 @@ The framework keeps only safe QA utilities:
 - Local-only signup URL validation, defaulting to `http://localhost:8000/signup`.
 - Delay range sanitization.
 - Retry attempt sanitization.
+- Recursive removal of unsupported proxy, CAPTCHA, anti-detection, and engagement automation config keys.
 - Candidate selector mapping for common signup fields.
 - Safe click and safe clear helpers.
 - Resilient field filling.
@@ -102,6 +103,10 @@ python signup_form_tester.py --config config.json
   }
 }
 ```
+
+## Safe config guardrails
+
+Configuration is cleaned before a run starts. Unsupported keys related to proxying, CAPTCHA solving, browser fingerprint changes, account export, post-signup automation, or engagement automation are removed recursively and logged by dotted path. This keeps accidental legacy settings from re-enabling behavior that is outside the local QA scope.
 
 ## Development notes
 
